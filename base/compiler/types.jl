@@ -44,7 +44,7 @@ struct OptimizationParams
     inlining::Bool              # whether inlining is enabled
     inline_cost_threshold::Int  # number of CPU cycles beyond which it's not worth inlining
     inline_nonleaf_penalty::Int # penalty for dynamic dispatch
-    inline_tupleret_bonus::Int  # extra willingness for non-isbits tuple return types
+    inline_tupleret_bonus::Int  # extra inlining willingness for non-concrete tuple return types (in hopes of splitting it up)
 
     # Duplicating for now because optimizer inlining requires it.
     # Keno assures me this will be removed in the near future
@@ -56,7 +56,7 @@ struct OptimizationParams
             inlining::Bool = inlining_enabled(),
             inline_cost_threshold::Int = 100,
             inline_nonleaf_penalty::Int = 1000,
-            inline_tupleret_bonus::Int = 400,
+            inline_tupleret_bonus::Int = 250,
             max_methods::Int = 3,
             tuple_splat::Int = 32,
             union_splitting::Int = 4,
