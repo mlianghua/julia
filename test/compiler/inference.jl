@@ -2678,3 +2678,12 @@ partial_return_2(x) = Val{partial_return_1(x)[2]}
 # Precision of abstract_iteration
 f_splat(x) = (x...,)
 @test Base.return_types(f_splat, (Pair{Int,Int},)) == Any[Tuple{Int, Int}]
+
+# Inference precision of union-split calls
+function f_apply_union_split(fs, x)
+    i = rand(1:length(fs))
+    f = fs[i]
+    f(x)
+end
+
+@test Base.return_types(f_apply_union_split, Tuple{Tuple{typeof(sqrt), typeof(abs)}, Int64}) == Any[Union{Int64, Float64}]

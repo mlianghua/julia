@@ -34,17 +34,19 @@ function matching_methods(@nospecialize(atype), cache::IdDict{Any, Tuple{Any, UI
     return ms
 end
 
+# arr should be small - guaranteed below by the union splitting limit
+function push_unique!(arr::Vector{T}, x::T) where T
+    for y in arr
+        y === x && return
+    end
+    push!(arr, x)
+end
+
 function abstract_call_gf_by_type(interp::AbstractInterpreter, @nospecialize(f), argtypes::Vector{Any}, @nospecialize(atype), sv::InferenceState,
                                   max_methods::Int = InferenceParams(interp).MAX_METHODS)
     if sv.currpc in sv.throw_blocks
         return Any
     end
-    mt = ccall(:jl_method_table_for, Any, (Any,), atype)
-    if mt === nothing
-        add_remark!(interp, sv, "Could not identify method table for call")
-        return Any
-    end
-    mt = mt::Core.MethodTable
     min_valid = UInt[typemin(UInt)]
     max_valid = UInt[typemax(UInt)]
     atype_params = unwrap_unionall(atype).parameters
@@ -52,7 +54,14 @@ function abstract_call_gf_by_type(interp::AbstractInterpreter, @nospecialize(f),
     if splitunions
         splitsigs = switchtupleunion(atype)
         applicable = Any[]
+        mts = Core.MethodTable[]
         for sig_n in splitsigs
+            mt = ccall(:jl_method_table_for, Any, (Any,), sig_n)
+            if mt === nothing
+                add_remark!(interp, sv, "Could not identify method table for call")
+                return Any
+            end
+            mt = mt::Core.MethodTable
             xapplicable = matching_methods(sig_n, sv.matching_methods_cache, max_methods,
                                            get_world_counter(interp), min_valid, max_valid)
             if xapplicable === false
@@ -60,8 +69,15 @@ function abstract_call_gf_by_type(interp::AbstractInterpreter, @nospecialize(f),
                 return Any
             end
             append!(applicable, xapplicable)
+            push_unique!(mts, mt)
         end
     else
+        mt = ccall(:jl_method_table_for, Any, (Any,), atype)
+        if mt === nothing
+            add_remark!(interp, sv, "Could not identify method table for call")
+            return Any
+        end
+        mt = mt::Core.MethodTable
         applicable = matching_methods(atype, sv.matching_methods_cache, max_methods,
                                       get_world_counter(interp), min_valid, max_valid)
         if applicable === false
@@ -70,6 +86,7 @@ function abstract_call_gf_by_type(interp::AbstractInterpreter, @nospecialize(f),
             add_remark!(interp, sv, "Too many methods matched")
             return Any
         end
+        mts = Core.MethodTable[mt]
     end
     update_valid_age!(min_valid[1], max_valid[1], sv)
     applicable = applicable::Array{Any,1}
@@ -161,18 +178,22 @@ function abstract_call_gf_by_type(interp::AbstractInterpreter, @nospecialize(f),
             add_backedge!(edge::MethodInstance, sv)
         end
         fullmatch = false
-        for i in napplicable:-1:1
-            match = applicable[i]::SimpleVector
-            method = match[3]::Method
-            if atype <: method.sig
-                fullmatch = true
-                break
+        if length(mts) == 1
+            for i in napplicable:-1:1
+                match = applicable[i]::SimpleVector
+                method = match[3]::Method
+                if atype <: method.sig
+                    fullmatch = true
+                    break
+                end
             end
         end
         if !fullmatch
-            # also need an edge to the method table in case something gets
-            # added that did not intersect with any existing method
-            add_mt_backedge!(mt, atype, sv)
+            for mt in mts
+                # also need an edge to the method table in case something gets
+                # added that did not intersect with any existing method
+                add_mt_backedge!(mt, atype, sv)
+            end
         end
     end
     #print("=> ", rettype, "\n")
